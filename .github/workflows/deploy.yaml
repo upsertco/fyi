@@ -44,7 +44,18 @@ jobs:
     needs: [lint, test]
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.tool-versions'
+          cache: npm
+      - run: npm ci
       - name: Deploy
+        # NOTE: Deploy requires a real KV namespace id in wrangler.toml. The
+        # committed value is a placeholder (00000000000000000000000000000000);
+        # create one with `npx wrangler kv namespace create URLS` and paste the
+        # returned id, or this step will fail to bind the URLS namespace.
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
