@@ -42,6 +42,9 @@ jobs:
     runs-on: ubuntu-latest
     name: Deploy to Cloudflare
     needs: [lint, test]
+    # Skip the Cloudflare deploy on the template repo itself, which has no real
+    # KV namespace / secrets. Repos created from this template will still deploy.
+    if: github.repository != 'upsertco/fyi'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
