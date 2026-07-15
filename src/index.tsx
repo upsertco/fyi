@@ -18,15 +18,30 @@ import { HTTPException } from 'hono/http-exception';
 import { logger } from 'hono/logger';
 import { createMiddleware } from 'hono/factory';
 import { validator } from 'hono/validator';
-import { nanoid } from 'nanoid';
+import type { ContentfulStatusCode } from 'hono/utils/http-status';
+import { customAlphabet } from 'nanoid';
 import { z } from 'zod';
 
-import { Error } from './components';
+import { ErrorPage } from './components';
 
 const app = new Hono<{ Bindings: Env }>();
 
+// Apply middleware to add logger and "Powered by Hono" header.
+// Must be registered before the routes so it applies to them.
+app.use('*', logger(), poweredBy());
+
+// Restrict generated codes to the same character set the param regex accepts
+// so every created code is retrievable (nanoid's default alphabet includes
+// `-` and `_`, which the lookup route rejects).
+const ALPHABET =
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+const generateCode = customAlphabet(ALPHABET, 6);
+
 const payloadSchema = z.object({
-  longUrl: z.string().url('Invalid URL'),
+  longUrl: z
+    .string()
+    .url('Invalid URL')
+    .refine((u) => /^https?:\/\//i.test(u), 'URL must use http or https'),
 });
 
 const regex = /^[a-zA-Z0-9]{6}$/;
@@ -35,12 +50,30 @@ const paramSchema = z.object({
   code: z.string().regex(new RegExp(regex)),
 });
 
+// Constant-time string comparison to avoid leaking token information through
+// response timing. Hashing both inputs to a fixed length first means the
+// byte-wise comparison never short-circuits and never reveals length.
+async function timingSafeEqual(a: string, b: string): Promise<boolean> {
+  const encoder = new TextEncoder();
+  const [aHash, bHash] = await Promise.all([
+    crypto.subtle.digest('SHA-256', encoder.encode(a)),
+    crypto.subtle.digest('SHA-256', encoder.encode(b)),
+  ]);
+  const aBytes = new Uint8Array(aHash);
+  const bBytes = new Uint8Array(bHash);
+  let diff = 0;
+  for (let i = 0; i < aBytes.length; i++) {
+    diff |= aBytes[i] ^ bBytes[i];
+  }
+  return diff === 0;
+}
+
 // Middleware to check the authentication header for POST requests
 const authMiddleware = createMiddleware(async (c, next) => {
   const authHeader = c.req.header('Authorization');
-  const expectedAuthToken = c.env.AUTH_KEY;
+  const expectedAuthHeader = `Bearer ${c.env.AUTH_KEY}`;
 
-  if (authHeader !== `Bearer ${expectedAuthToken}`) {
+  if (!authHeader || !(await timingSafeEqual(authHeader, expectedAuthHeader))) {
     return c.json({ error: 'Unauthorized' }, 401);
   }
   await next();
@@ -60,15 +93,24 @@ app.post(
   async (c) => {
     const { longUrl } = c.req.valid('json');
 
-    // Generate a random short code
-    const shortCode = nanoid(6);
+    // Generate a random short code, regenerating on the rare collision so we
+    // never overwrite an existing mapping.
+    let shortCode = generateCode();
+    while (await c.env.URLS.get(shortCode)) {
+      shortCode = generateCode();
+    }
 
     // Store the long URL with the short code as the key
     await c.env.URLS.put(shortCode, longUrl);
 
+    // Derive the short-URL base from the incoming request so the response is
+    // correct on any deployment — the free *.workers.dev subdomain or a custom
+    // domain — with no configuration.
+    const base = new URL(c.req.url).origin;
+
     return c.json({
       code: shortCode,
-      url: `https://${c.env.DOMAIN}/${shortCode}`,
+      url: `${base}/${shortCode}`,
     });
   },
 );
@@ -98,29 +140,28 @@ app.get(
 );
 
 app.notFound((c) => {
-  return c.render(
-    <Error title="404 Not Found" code="404">
+  return c.html(
+    <ErrorPage title="404 Not Found" code="404">
       Sorry that url doesn&apos;t seem to exist.
-    </Error>,
+    </ErrorPage>,
+    404,
   );
 });
 
 app.onError((err, c) => {
-  let statusCode = 500;
+  let statusCode: ContentfulStatusCode = 500;
   if (err instanceof HTTPException) {
     // Get the custom response
     const httpError = err.getResponse();
-    statusCode = httpError.status;
+    statusCode = httpError.status as ContentfulStatusCode;
   }
 
-  return c.render(
-    <Error title={err.name} code={statusCode}>
+  return c.html(
+    <ErrorPage title={err.name} code={statusCode}>
       {err.message}
-    </Error>,
+    </ErrorPage>,
+    statusCode,
   );
 });
-
-// Apply middleware to add logger and "Powered by Hono" header
-app.use('*', logger(), poweredBy());
 
 export default app;

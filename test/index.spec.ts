@@ -10,7 +10,9 @@ type Payload = {
 
 vi.mock('nanoid', () => {
   return {
-    nanoid: vi.fn(() => 'ABC123'), // Return a fixed string as the mock implementation
+    // customAlphabet(alphabet, size) returns a generator function; return a
+    // fixed short code so assertions are deterministic.
+    customAlphabet: vi.fn(() => vi.fn(() => 'ABC123')),
   };
 });
 
@@ -37,7 +39,9 @@ describe('ajd-fyi worker', () => {
       const data: Payload = await response.json();
       expect(response.status).toBe(200);
       expect(data.code).toBe('ABC123');
-      expect(data.url).toBe(`https://${env.DOMAIN}/ABC123`);
+      // The base is derived from the request host, so a POST to https://ajd.fyi
+      // yields a short URL on that same origin.
+      expect(data.url).toBe('https://ajd.fyi/ABC123');
     });
 
     it('should respond with error 400 with a bad longUrl', async () => {

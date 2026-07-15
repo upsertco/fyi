@@ -3,9 +3,18 @@ main = "src/index.tsx"
 compatibility_date = "2025-02-14"
 
 observability = { enabled = true }
-vars = { DOMAIN = "ajd.fyi" }
-kv_namespaces = [{ binding = "URLS", id = "ac9274e00fda4038aeebf9531ca5d69b" }]
-routes = [{ pattern = "ajd.fyi", custom_domain = true }]
+
+# KV stores the short-code -> long-URL mappings.
+# Deploying with the "Deploy to Cloudflare" button provisions a fresh namespace
+# for your account and fills in this id automatically. For a manual deploy,
+# create one and paste the returned id below:
+#   npx wrangler kv namespace create URLS
+kv_namespaces = [{ binding = "URLS", id = "00000000000000000000000000000000" }]
+
+# Optional: serve from your own domain (must already be in your Cloudflare
+# account). Leave commented to use the free *.workers.dev subdomain.
+# routes = [{ pattern = "example.com", custom_domain = true }]
+
 assets = { directory = "public" }
 
 [dev]

@@ -31,7 +31,7 @@ export const Layout: FC = (props) => {
   );
 };
 
-export const Error: FC = (props) => {
+export const ErrorPage: FC = (props) => {
   return (
     <Layout title={props.title}>
       <h1 className="text-4xl font-mono font-bold text-gray-100">

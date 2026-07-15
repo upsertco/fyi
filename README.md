@@ -1,71 +1,119 @@
 # fyi
 
-A very primative URL shortener using Cloudflare Workers, KV, and Hono.
+A very primitive URL shortener using Cloudflare Workers, KV, and Hono.
 
-## Installation
+## Deploy your own
 
-Make sure to install [Wrangler](https://developers.cloudflare.com/workers/wrangler/install-and-update/)
-and sign up for a free [Cloudflare](https://www.cloudflare.com/plans/developer-platform/) account. It's
-helpful if you have a short domain already set up in Cloudflare, as this allows
-you to attach the domain to your worker.
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/upsertco/fyi)
 
-You'll also need to create a KV store. Wrangler's local KV support is pretty
-handy—when you run it locally, it uses SQLite under the hood, so you can
-interact with the same bindings you would in production without the overhead of
-running a separate KV store. It is possible to use
-wrangler to [create a KV store](https://developers.cloudflare.com/kv/get-started/#2-create-a-kv-namespace) in your terminal.
+Clicking the button clones this repo into your own Git account, provisions a KV
+namespace for the short links, wires up automatic deploys (Workers Builds), and
+publishes the worker to a free `*.workers.dev` subdomain — no config edits
+required.
 
-Once you clone the repo, run:
+Once it's live, redirects work immediately. The **create** endpoint stays locked
+(returns `401`) until you set an `AUTH_KEY` — see [After deploying](#after-deploying).
 
-```bash
-npm i
-```
+## Usage
 
-To start the project you just need to run:
+Create a short link (`AUTH_KEY` required):
 
 ```bash
-npm run dev
+curl -X POST https://<your-worker>.workers.dev \
+  -H "Authorization: Bearer $AUTH_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"longUrl": "https://example.com/some/very/long/path"}'
 ```
 
-If you need to regenerate types for TypeScript, you can execute
-the following command to regenerate them:
+Response:
+
+```json
+{
+  "code": "aB3xZq",
+  "url": "https://<your-worker>.workers.dev/aB3xZq"
+}
+```
+
+Visiting the returned `url` issues a `302` redirect to the original long URL.
+
+## After deploying
+
+The create endpoint is guarded by a bearer token (`AUTH_KEY`). Generate one and
+set it as a production secret:
+
+```bash
+# Generates an AUTH_KEY into .dev.vars for local dev and prints the command
+# to add the production secret.
+./scripts/create_token.sh
+
+# Add the production secret to your deployed worker:
+npx wrangler secret put AUTH_KEY
+```
+
+Keep the token somewhere safe — it isn't stored anywhere retrievable. If you lose
+it, generate a new one and update any integrations using the old token.
+
+## Local development
+
+```bash
+npm i          # install dependencies
+npm run dev    # start wrangler dev on http://localhost:3000
+npm test       # run the test suite
+```
+
+Wrangler's local KV support uses SQLite under the hood, so you can exercise the
+same bindings locally that you use in production without running a separate KV
+store.
+
+If you change bindings in `wrangler.toml`, regenerate the TypeScript types:
 
 ```bash
 npm run cf-typegen
 ```
 
-There is also a script in the repo to generate a secure `AUTH_KEY` that needs to
-be used in some of the API requests. If you run:
+## Manual deploy (without the button)
 
-`./scripts/create_token.sh`
+1. Create a KV namespace and paste the returned id into `wrangler.toml` under
+   `kv_namespaces`:
 
-It will create or update the `.dev.vars` file with an `AUTH_KEY` and output the
-command you would need to run to add a production key to your Cloudflare
-account. Make sure you keep track of this key because its not stored anywhere
-and cannot be retrieved if its lost. If you did lose it, simply create a new
-token and update any integrations that are using the old token.
+   ```bash
+   npx wrangler kv namespace create URLS
+   ```
+
+2. Set the auth token (see [After deploying](#after-deploying)).
+
+3. Deploy:
+
+   ```bash
+   npm run deploy
+   ```
+
+## Custom domain (optional)
+
+To serve from your own short domain instead of `*.workers.dev`, add the domain
+to your Cloudflare account, then uncomment and edit the `routes` line in
+`wrangler.toml`:
+
+```toml
+routes = [{ pattern = "example.com", custom_domain = true }]
+```
+
+The created short URLs automatically use whatever host the request came in on, so
+no other change is needed.
 
 ## Features
 
 - Simple endpoints to create and access short links.
-- Use nanoid to generate URL-friendly compatible short codes.
-- Use Hono's built-in JSX support to render error pages if a link has been
-  removed or is missing.
-- Tailwindcss for styling error pages.
-- Growing Test Suite
-- Under 10ms CPU compute which allows this to be executed in a free account.
-
-## Customize
-
-- If you have a domain and KV setup already, just modify the `.vars.dev` and
-  `wrangler.toml` file to account for your domain.
-
-- You can update the styling for error pages how ever you'd like.
+- Uses nanoid to generate URL-friendly short codes.
+- Uses Hono's built-in JSX support to render error pages for missing links.
+- Tailwind CSS for styling error pages.
+- Growing test suite.
+- Under 10ms CPU compute, so it runs comfortably on a free account.
 
 ## Extra
 
 You can use this with a tool like [Dropshare](https://dropshare.app) to create
-shortlinks but also share screenshots and videos. Follow the [setup
+shortlinks and also share screenshots and videos. Follow the [setup
 guide](https://support.dropshare.app/hc/en-us/articles/201268771-How-to-set-up-a-custom-URL-shortener)
-in order use their landing pages or use the route to query the image and serve
-it from the worker directly.
+to use their landing pages, or use the route to query the image and serve it from
+the worker directly.
